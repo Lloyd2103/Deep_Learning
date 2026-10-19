@@ -1,0 +1,137 @@
+# ==============================================================================
+# Restormer Deshadowing - Full RDD Dataset (4,254 Matched Pairs / 545 Test)
+# Resuming from Step 30,000 -> 100,000
+# All progressive stages mathematically calibrated to stay strictly under 17GB VRAM
+# ==============================================================================
+
+# general settings
+name: Deshadowing_Restormer_RDD
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1
+manual_seed: 100
+gpu_memory_fraction: 0.64  # ~20.8GB ceiling (provides 4GB+ safe buffer for all stages)
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: RDD_Train_4254
+    type: Dataset_PairedImage
+    dataroot_gt: ./Deshadowing/Datasets/RDD_data/train/gt
+    dataroot_lq: ./Deshadowing/Datasets/RDD_data/train/img
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 6
+    batch_size_per_gpu: 6
+
+    ### -------------Progressive training (Calibrated for <17GB VRAM)-------------
+    # Stage 1: Patch 128, Batch 6 (Volume: 98k pixels) -> Finished at iter 30k
+    # Stage 2: Patch 160, Batch 3 (Volume: 77k pixels) -> Safe ~16GB VRAM
+    # Stage 3: Patch 192, Batch 2 (Volume: 74k pixels) -> Safe ~15.5GB VRAM
+    # Stage 4: Patch 256, Batch 1 (Volume: 65k pixels) -> Safe ~14.5GB VRAM
+    mini_batch_sizes: [6, 3, 2, 1]
+    iters: [30000, 25000, 25000, 20000]
+    gt_size: 256
+    gt_sizes: [128, 160, 192, 256]
+    ### -------------------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: RDD_Val_545
+    type: Dataset_PairedImage
+    dataroot_gt: ./Deshadowing/Datasets/RDD_data/test/gt
+    dataroot_lq: ./Deshadowing/Datasets/RDD_data/test/img
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: Restormer
+  inp_channels: 3
+  out_channels: 3
+  dim: 48
+  num_blocks: [4, 6, 6, 8]
+  num_refinement_blocks: 4
+  heads: [1, 2, 4, 8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+  use_hf_branch: true   # High-Frequency Branch + Adaptive Gated Spatial-Frequency Fusion
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  # Seamlessly resumes exact optimizer, scheduler, epoch & weights from step 30,000
+  resume_state: ./experiments/Deshadowing_Restormer_RDD/training_states/30000.state
+
+# training settings
+train:
+  total_iter: 100000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [30000, 70000]
+    restart_weights: [1, 1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  freq_opt:
+    type: FrequencyLoss
+    loss_weight: 0.1
+    criterion: l1
+
+# validation settings
+val:
+  window_size: 8
+  val_freq: !!float 2000
+  save_img: false
+  rgb2bgr: true
+  use_image: true
+  max_minibatch: 4
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 100
+  save_checkpoint_freq: !!float 2000
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

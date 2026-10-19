@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch checkpoints and training states (large binaries >100MB rejected by GitHub)
+*.pth
+*.pt
+*.state
+experiments/
+tb_logger/
+
+# Datasets and heavy data files
+Deshadowing/Datasets
+*.tar.gz
+*.zip
+
+# Log files
+*.log
+train_rdd.log
+scratch_check.txt
+
+# Results and temporary files
+Deshadowing/results/
+scratch/
+.idea/
+.vscode/
